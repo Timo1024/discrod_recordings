@@ -32,6 +32,11 @@ client.on('messageCreate', async message => {
     if (message.content === '!join') {
         // Check if the message author is in a voice channel
         if (message.member?.voice.channel) {
+
+            // create folder in ./recordings for this session with timestamp as name
+            const timestamp_folder = new Date().getTime();
+            fs.mkdirSync(`E:/programming/discrod_recordings/recordings/${timestamp_folder}`);
+
             const voiceChannel = message.member.voice.channel as VoiceChannel;
 
             const connection = joinVoiceChannel({
@@ -43,11 +48,15 @@ client.on('messageCreate', async message => {
 
             message.channel.send('Joined the voice channel!');
 
-            const encoder = new OpusEncoder(48000, 2); // 48kHz sample rate, 2 channels
+            // const encoder = new OpusEncoder(48000, 2); // 48kHz sample rate, 2 channels
 
             const streams: Streams = {}; // To keep track of active streams for each user
+            const audioListeners: { [userId: string]: (chunk: any) => void } = {}; // To track listeners
 
             connection.receiver.speaking.on('start', (userId) => {
+
+                const encoder = new OpusEncoder(48000, 2);
+
                 console.log(`User ${userId} started speaking`);
 
                 const audioStream = connection.receiver.subscribe(userId, {
@@ -56,7 +65,10 @@ client.on('messageCreate', async message => {
                     },
                 });
 
-                const writableStream = fs.createWriteStream(`E:/programming/discrod_recordings/recordings/${userId}.pcm`, { flags: 'a' });
+                const timestamp = new Date().getTime();
+
+                const writableStream = fs.createWriteStream(`E:/programming/discrod_recordings/recordings/${timestamp_folder}/${userId}_${timestamp}.pcm`);
+                // const writableStream = fs.createWriteStream(`E:/programming/discrod_recordings/recordings/${userId}_${timestamp}.pcm`, { flags: 'a' });
 
                 streams[userId] = writableStream; // Store the stream for later closure
 
@@ -75,50 +87,6 @@ client.on('messageCreate', async message => {
                     delete streams[userId]; // Clean up the stream reference
                 }
             });
-
-            // const voiceChannel = message.member.voice.channel as VoiceChannel;
-
-            // // Join the voice channel
-            // const connection = joinVoiceChannel({
-            //     channelId: voiceChannel.id,
-            //     guildId: message.guild?.id as string,
-            //     adapterCreator: message.guild?.voiceAdapterCreator as any,
-            //     selfDeaf: false,
-            // });
-
-            // message.channel.send('Joined the voice channel!');
-
-            // // Set up Opus encoding
-            // const encoder = new OpusEncoder(48000, 2); // 48kHz sample rate, 2 channels
-
-            // // Listen for audio data
-            // connection.receiver.speaking.on('start', (userId) => {
-            //     console.log(`User ${userId} started speaking`);
-
-            //     const audioStream = connection.receiver.subscribe(userId, {
-            //         end: {
-            //             behavior: EndBehaviorType.Manual,
-            //         },
-            //     });
-
-            //     const writableStream = fs.createWriteStream(`E:/programming/discrod_recordings/recordings/${userId}.pcm`, { flags: 'a'});
-
-            //     // Decode and write raw PCM data to the file
-            //     audioStream.on('data', (chunk) => {
-            //         const decoded = encoder.decode(chunk);
-            //         writableStream.write(decoded);
-            //     });
-
-            //     audioStream.on('end', () => {
-            //         console.log(`Finished recording for user ${userId}`);
-            //         writableStream.end();
-            //     });
-            // });
-
-            // connection.receiver.speaking.on('end', (userId) => {
-            //     console.log(`User ${userId} stopped speaking`);
-            // });
-
         } else {
             message.channel.send('You need to join a voice channel first!');
         }
