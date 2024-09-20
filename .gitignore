@@ -1,0 +1,9 @@
+node_modules/
+
+config.json
+
+dist/
+
+recordings/
+
+package-lock.json
