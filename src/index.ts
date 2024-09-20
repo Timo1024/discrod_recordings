@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Events, VoiceChannel, VoiceState } from 'discord.js';
-import { joinVoiceChannel, createAudioPlayer, AudioPlayer, AudioResource, VoiceConnection, EndBehaviorType } from '@discordjs/voice';
+import { joinVoiceChannel, createAudioPlayer, AudioPlayer, AudioResource, VoiceConnection, EndBehaviorType, VoiceConnectionStatus, AudioReceiveStream } from '@discordjs/voice';
 import prism from 'prism-media'; 
 import { OpusEncoder } from '@discordjs/opus';
 import { Readable } from 'stream';
@@ -10,6 +10,10 @@ import config from '../config.json';
 
 interface Streams {
     [key: string]: fs.WriteStream;
+}
+
+interface Streams2 {
+    [key: string]: AudioReceiveStream;
 }
 
 // Create a new client instance
@@ -29,6 +33,59 @@ client.once(Events.ClientReady, () => {
 
 // Command to join voice channel
 client.on('messageCreate', async message => {
+
+    if (message.content === '!join_all') {
+        // Check if the message author is in a voice channel
+        if (message.member?.voice.channel) {
+            const voiceChannel = message.member.voice.channel as VoiceChannel;
+
+            // Create a folder for this session with a timestamp as its name
+            const timestamp = new Date().getTime();
+            const folderPath = `E:/programming/discrod_recordings/recordings/${timestamp}`;
+            fs.mkdirSync(folderPath);
+
+            const connection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: message.guild?.id as string,
+                adapterCreator: message.guild?.voiceAdapterCreator as any,
+                selfDeaf: false, // Set this to false so the bot hears itself
+            });
+
+            message.channel.send('Joined the voice channel and recording everyone!');
+
+            const writableStream = fs.createWriteStream(`${folderPath}/channel_recording.pcm`, { flags: 'a' });
+
+            connection.receiver.speaking.on('start', (userId) => {
+                console.log(`User ${userId} started speaking`);
+
+                const audioStream = connection.receiver.subscribe(userId, {
+                    end: { behavior: EndBehaviorType.Manual }
+                });
+
+                audioStream.on('data', (chunk) => {
+                    console.log('Received a chunk of audio data');
+                    writableStream.write(chunk); // Write to the file
+                });
+
+                audioStream.on('error', (error) => {
+                    console.error('Audio Stream Error:', error);
+                });
+            });
+
+            connection.receiver.speaking.on('end', (userId) => {
+                console.log(`User ${userId} stopped speaking`);
+            });
+
+            // Handle disconnection
+            connection.on(VoiceConnectionStatus.Disconnected, () => {
+                console.log("Disconnected from the channel.");
+                writableStream.end(); // Ensure the file is properly closed
+            });
+        } else {
+            message.channel.send('You need to join a voice channel first!');
+        }
+    }
+
     if (message.content === '!join') {
         // Check if the message author is in a voice channel
         if (message.member?.voice.channel) {
@@ -72,10 +129,13 @@ client.on('messageCreate', async message => {
 
                 streams[userId] = writableStream; // Store the stream for later closure
 
-                audioStream.on('data', (chunk) => {
+                const audioDataListener = (chunk: any) => {
                     const decoded = encoder.decode(chunk);
                     writableStream.write(decoded);
-                });
+                };
+
+                audioListeners[userId] = audioDataListener; // Save the listener reference
+                audioStream.on('data', audioDataListener); // Attach the listener
             });
 
             connection.receiver.speaking.on('end', (userId) => {
@@ -85,6 +145,14 @@ client.on('messageCreate', async message => {
                     streams[userId].end(); // Close the writable stream
                     console.log(`Finished recording for user ${userId}`);
                     delete streams[userId]; // Clean up the stream reference
+                }
+
+                if (audioListeners[userId]) {
+                    const audioStream = connection.receiver.subscriptions.get(userId);
+                    if (audioStream) {
+                        audioStream.off('data', audioListeners[userId]); // Remove the listener
+                    }
+                    delete audioListeners[userId]; // Clean up listener reference
                 }
             });
         } else {
